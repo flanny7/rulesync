@@ -31,6 +31,25 @@ type CopilotSubagentParams = {
   body: string;
 } & AiFileParams;
 
+const AGENT_MD_EXTENSION = ".agent.md";
+
+const toAgentMdFilePath = (filePath: string): string => {
+  if (filePath.endsWith(AGENT_MD_EXTENSION)) {
+    return filePath;
+  }
+  if (filePath.endsWith(".md")) {
+    return filePath.slice(0, -3) + AGENT_MD_EXTENSION;
+  }
+  throw new Error(`Expected .md file path, got: ${filePath}`);
+};
+
+const fromAgentMdFilePath = (filePath: string): string => {
+  if (filePath.endsWith(AGENT_MD_EXTENSION)) {
+    return filePath.slice(0, -AGENT_MD_EXTENSION.length) + ".md";
+  }
+  return filePath;
+};
+
 const normalizeTools = (tools: string | string[] | undefined): string[] => {
   if (!tools) {
     return [];
@@ -98,7 +117,7 @@ export class CopilotSubagent extends ToolSubagent {
       frontmatter: rulesyncFrontmatter,
       body: this.body,
       relativeDirPath: RULESYNC_SUBAGENTS_RELATIVE_DIR_PATH,
-      relativeFilePath: this.getRelativeFilePath(),
+      relativeFilePath: fromAgentMdFilePath(this.getRelativeFilePath()),
       validate: true,
     });
   }
@@ -134,7 +153,7 @@ export class CopilotSubagent extends ToolSubagent {
       frontmatter: copilotFrontmatter,
       body,
       relativeDirPath: paths.relativeDirPath,
-      relativeFilePath: rulesyncSubagent.getRelativeFilePath(),
+      relativeFilePath: toAgentMdFilePath(rulesyncSubagent.getRelativeFilePath()),
       fileContent,
       validate,
       global,
