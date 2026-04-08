@@ -646,7 +646,7 @@ description: Copilot agent description
 ---
 Copilot agent content`;
 
-      await writeFileContent(join(subagentsDir, "copilot-agent.md"), subagentContent);
+      await writeFileContent(join(subagentsDir, "copilot-agent.agent.md"), subagentContent);
 
       const toolFiles = await processor.loadToolFiles();
 

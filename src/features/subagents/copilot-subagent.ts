@@ -43,6 +43,13 @@ const toAgentMdFilePath = (filePath: string): string => {
   return filePath + AGENT_MD_EXTENSION;
 };
 
+const fromAgentMdFilePath = (filePath: string): string => {
+  if (filePath.endsWith(AGENT_MD_EXTENSION)) {
+    return filePath.slice(0, -AGENT_MD_EXTENSION.length) + ".md";
+  }
+  return filePath;
+};
+
 const normalizeTools = (tools: string | string[] | undefined): string[] => {
   if (!tools) {
     return [];
@@ -110,7 +117,7 @@ export class CopilotSubagent extends ToolSubagent {
       frontmatter: rulesyncFrontmatter,
       body: this.body,
       relativeDirPath: RULESYNC_SUBAGENTS_RELATIVE_DIR_PATH,
-      relativeFilePath: this.getRelativeFilePath(),
+      relativeFilePath: fromAgentMdFilePath(this.getRelativeFilePath()),
       validate: true,
     });
   }

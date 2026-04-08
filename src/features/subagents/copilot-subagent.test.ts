@@ -174,6 +174,25 @@ Plan tasks`;
       });
       expect(rulesyncSubagent.getBody()).toBe("Plan tasks");
     });
+
+    it("converts .agent.md back to .md for rulesync file path", () => {
+      const subagent = new CopilotSubagent({
+        baseDir: testDir,
+        relativeDirPath: ".github/agents",
+        relativeFilePath: "planner.agent.md",
+        frontmatter: {
+          name: "planner",
+          description: "Plan things",
+        },
+        body: "Plan tasks",
+        fileContent: validContent,
+        validate: true,
+      });
+
+      const rulesyncSubagent = subagent.toRulesyncSubagent();
+
+      expect(rulesyncSubagent.getRelativeFilePath()).toBe("planner.md");
+    });
   });
 
   describe("fromFile", () => {
