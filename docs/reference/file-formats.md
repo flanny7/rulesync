@@ -108,60 +108,27 @@ Example:
       }
     ]
   },
-  "cursor": {
-    "hooks": {
-      "afterFileEdit": [{ "command": ".cursor/hooks/format.sh" }],
-      "beforeShellExecution": [{ "command": ".cursor/hooks/pre-shell.sh" }]
-    }
-  },
   "claudecode": {
     "hooks": {
-      "notification": [
-        {
-          "matcher": "permission_prompt",
-          "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/notify.sh"
-        }
-      ],
       "worktreeCreate": [{ "command": ".claude/hooks/worktree-setup.sh" }]
-    }
-  },
-  "opencode": {
-    "hooks": {
-      "afterShellExecution": [{ "command": ".rulesync/hooks/post-shell.sh" }]
-    }
-  },
-  "kilo": {
-    "hooks": {
-      "afterFileEdit": [{ "command": ".rulesync/hooks/post-edit.sh" }]
-    }
-  },
-  "copilot": {
-    "hooks": {
-      "afterError": [{ "command": ".rulesync/hooks/error-report.sh" }]
-    }
-  },
-  "geminicli": {
-    "hooks": {
-      "beforeAgentResponse": [{ "command": ".rulesync/hooks/pre-response.sh" }]
-    }
-  },
-  "codexcli": {
-    "hooks": {
-      "preToolUse": [{ "matcher": "Bash", "command": ".rulesync/hooks/codex-pre-tool.sh" }]
-    }
-  },
-  "factorydroid": {
-    "hooks": {
-      "setup": [{ "command": ".rulesync/hooks/factory-setup.sh" }]
-    }
-  },
-  "deepagents": {
-    "hooks": {
-      "permissionRequest": [{ "command": ".rulesync/hooks/permission-check.sh" }]
     }
   }
 }
 ```
+
+> **Note:** The `claudecode.hooks` override is shown above because `worktreeCreate` and `worktreeRemove` are Claude Code-specific events that do not support the `matcher` field. Use tool-specific override keys only for events exclusive to that tool; shared events belong in the top-level `hooks` section.
+
+**Tool-specific output transformations:**
+
+| Tool | Unique output keys / behavior |
+|------|-------------------------------|
+| **GitHub Copilot** | `command` is emitted as `bash` (non-Windows) or `powershell` (Windows); `timeout` is emitted as `timeoutSec` |
+| **Gemini CLI** | Hooks are grouped by `matcher` in output; relative commands (starting with `./`) are prefixed with `$GEMINI_PROJECT_DIR/` |
+| **Claude Code** | Relative commands are prefixed with `$CLAUDE_PROJECT_DIR/`; `worktreeCreate`/`worktreeRemove` ignore `matcher` |
+| **Factory Droid** | Relative commands are prefixed with `$FACTORY_PROJECT_DIR/` |
+| **OpenCode / Kilo** | Generated as a JavaScript plugin file (not JSON); only `command`-type hooks are supported |
+| **Codex CLI** | Hooks are grouped by `matcher` in output; only `command`-type hooks; generates `.codex/config.toml` with feature flag |
+| **DeepAgents** | Output uses flat array structure; `command` is emitted as `["bash", "-c", "..."]`; `matcher` is not supported |
 
 ## `.copilot/mcp-config.json`
 
