@@ -40,7 +40,7 @@ const toAgentMdFilePath = (filePath: string): string => {
   if (filePath.endsWith(".md")) {
     return filePath.slice(0, -3) + AGENT_MD_EXTENSION;
   }
-  return filePath + AGENT_MD_EXTENSION;
+  throw new Error(`Expected .md file path, got: ${filePath}`);
 };
 
 const fromAgentMdFilePath = (filePath: string): string => {

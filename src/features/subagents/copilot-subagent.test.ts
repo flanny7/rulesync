@@ -146,6 +146,31 @@ Plan tasks`;
 
       expect(subagent.getRelativeFilePath()).toBe("planner.agent.md");
     });
+
+    it("throws when source file path does not end in .md", () => {
+      const rulesyncSubagent = new RulesyncSubagent({
+        baseDir: testDir,
+        relativeDirPath: RULESYNC_SUBAGENTS_RELATIVE_DIR_PATH,
+        relativeFilePath: "planner.txt",
+        frontmatter: {
+          targets: ["copilot"],
+          name: "planner",
+          description: "Plan things",
+          copilot: {},
+        },
+        body: "Plan tasks",
+        validate: true,
+      });
+
+      expect(() =>
+        CopilotSubagent.fromRulesyncSubagent({
+          baseDir: testDir,
+          relativeDirPath: RULESYNC_SUBAGENTS_RELATIVE_DIR_PATH,
+          rulesyncSubagent,
+          validate: true,
+        }),
+      ).toThrow("Expected .md file path");
+    });
   });
 
   describe("toRulesyncSubagent", () => {
