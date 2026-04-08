@@ -118,6 +118,26 @@ Example:
 
 > **Note:** The `claudecode.hooks` override is shown above because `worktreeCreate` and `worktreeRemove` are Claude Code-specific events that do not support the `matcher` field. Use tool-specific override keys only for events exclusive to that tool; shared events belong in the top-level `hooks` section.
 
+**Field support by tool:**
+
+Not all tools support every hook definition field. Fields listed as unsupported are silently dropped during generation.
+
+| Field | Cursor | Claude Code | Copilot | Gemini CLI | OpenCode | Kilo | Codex CLI | Factory Droid | DeepAgents |
+|-------|--------|-------------|---------|------------|----------|------|-----------|---------------|------------|
+| `command` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `type` | ✓ | ✓ | ✗ ^1 | ✓ | ✗ ^1 | ✗ ^1 | ✗ ^1 | ✓ | ✗ ^1 |
+| `timeout` | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ | ✗ ^2 |
+| `matcher` | ✓ | ✓ ^3 | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| `prompt` | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ ^4 | ✗ |
+| `loop_limit` | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `name` | ✗ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `description` | ✗ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+
+1. Only `"command"` type is supported; `"prompt"` type hooks are skipped.
+2. Hardcoded to 5 seconds; custom timeout is not supported.
+3. Except `worktreeCreate`/`worktreeRemove` events, which ignore `matcher`.
+4. Rulesync outputs the field, but Factory Droid only supports `"command"` type natively.
+
 **Tool-specific output transformations:**
 
 | Tool | Unique output keys / behavior |
