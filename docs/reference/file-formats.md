@@ -38,20 +38,130 @@ This is Rulesync, a Node.js CLI tool that automatically generates configuration 
 
 Hooks run scripts at lifecycle events (e.g. session start, before tool use). Events use **canonical camelCase** in this file; Cursor uses them as-is; Claude Code gets PascalCase in `.claude/settings.json`; OpenCode hooks are generated as a JavaScript plugin at `.opencode/plugins/rulesync-hooks.js`; Gemini CLI gets PascalCase (with some specific name mappings) in `.gemini/settings.json`.
 
+**Hook definition fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `command` | string | Shell command to execute (for command-type hooks) |
+| `type` | `"command"` \| `"prompt"` | Hook type (default: `"command"`) |
+| `timeout` | number | Timeout in milliseconds |
+| `matcher` | string | Pattern to match against (e.g. tool names for `preToolUse`/`postToolUse`) |
+| `prompt` | string | Prompt text (for prompt-type hooks) |
+| `loop_limit` | number \| null | Maximum number of loop iterations (`null` for unlimited) |
+| `name` | string | Hook name identifier |
+| `description` | string | Human-readable description of the hook |
+
 **Event support:**
 
-- **Cursor:** `sessionStart`, `preToolUse`, `postToolUse`, `stop`, `sessionEnd`, `beforeSubmitPrompt`, `subagentStop`, `preCompact`, `afterFileEdit`, `afterShellExecution`, `postToolUseFailure`, `subagentStart`, `beforeShellExecution`, `beforeMCPExecution`, `afterMCPExecution`, `beforeReadFile`, `afterAgentResponse`, `afterAgentThought`, `beforeTabFileRead`, `afterTabFileEdit`
-- **Claude Code:** `sessionStart`, `preToolUse`, `postToolUse`, `stop`, `sessionEnd`, `beforeSubmitPrompt`, `subagentStop`, `preCompact`, `permissionRequest`, `notification`, `setup`, `worktreeCreate`, `worktreeRemove`
+- **Cursor:** `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`, `beforeSubmitPrompt`, `stop`, `subagentStop`, `preCompact`, `postToolUseFailure`, `subagentStart`, `beforeShellExecution`, `afterShellExecution`, `beforeMCPExecution`, `afterMCPExecution`, `beforeReadFile`, `afterFileEdit`, `afterAgentResponse`, `afterAgentThought`, `beforeTabFileRead`, `afterTabFileEdit`
+- **Claude Code:** `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`, `beforeSubmitPrompt`, `stop`, `subagentStop`, `preCompact`, `permissionRequest`, `notification`, `setup`, `worktreeCreate`, `worktreeRemove`
 
 > **Note:** `worktreeCreate` and `worktreeRemove` are Claude Code-specific events and do not support the `matcher` field. Any matcher defined in the config will be ignored for these events.
 
 - **OpenCode:** `sessionStart`, `preToolUse`, `postToolUse`, `stop`, `afterFileEdit`, `afterShellExecution`, `permissionRequest`
+- **Kilo:** `sessionStart`, `preToolUse`, `postToolUse`, `stop`, `afterFileEdit`, `afterShellExecution`, `permissionRequest`
 - **GitHub Copilot:** `sessionStart`, `sessionEnd`, `beforeSubmitPrompt`, `preToolUse`, `postToolUse`, `afterError`
 - **Gemini CLI:** `sessionStart`, `sessionEnd`, `beforeSubmitPrompt`, `stop`, `beforeAgentResponse`, `afterAgentResponse`, `beforeToolSelection`, `preToolUse`, `postToolUse`, `preCompact`, `notification`
+- **Codex CLI:** `sessionStart`, `preToolUse`, `postToolUse`, `beforeSubmitPrompt`, `stop`
+- **Factory Droid:** `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`, `beforeSubmitPrompt`, `stop`, `subagentStop`, `preCompact`, `permissionRequest`, `notification`, `setup`
+- **DeepAgents:** `sessionStart`, `sessionEnd`, `beforeSubmitPrompt`, `permissionRequest`, `postToolUseFailure`, `stop`, `preCompact`
 
 > **Note:** Rulesync implements OpenCode hooks as a plugin, so importing from OpenCode to rulesync is not supported. OpenCode only supports command-type hooks (not prompt-type).
 
 > **Note:** GitHub Copilot's format uses separate `powershell` and `bash` fields for hooks. Rulesync supports only a single `command` field and resolves this by emitting the command under the `powershell` key on Windows, and under the `bash` key on all other platforms.
+
+Use optional **override keys** so tool-specific events and config live in one file without leaking to others: `cursor.hooks` for Cursor-only events, `claudecode.hooks` for Claude Code-only, `opencode.hooks` for OpenCode-only, `kilo.hooks` for Kilo-only, `copilot.hooks` for GitHub Copilot-only, `geminicli.hooks` for Gemini CLI-only, `codexcli.hooks` for Codex CLI-only, `factorydroid.hooks` for Factory Droid-only, `deepagents.hooks` for DeepAgents-only. Events in shared `hooks` that a tool does not support are skipped for that tool (and a warning is logged at generate time).
+
+Example:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "command": ".rulesync/hooks/session-start.sh",
+        "name": "session-init",
+        "description": "Initialize session environment"
+      }
+    ],
+    "preToolUse": [
+      {
+        "matcher": "Bash",
+        "type": "prompt",
+        "prompt": "Review the command before execution for safety",
+        "description": "Safety check for shell commands"
+      }
+    ],
+    "postToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "command": ".rulesync/hooks/format.sh",
+        "timeout": 10000
+      }
+    ],
+    "stop": [
+      {
+        "command": ".rulesync/hooks/audit.sh",
+        "loop_limit": null
+      }
+    ]
+  },
+  "cursor": {
+    "hooks": {
+      "afterFileEdit": [{ "command": ".cursor/hooks/format.sh" }],
+      "beforeShellExecution": [{ "command": ".cursor/hooks/pre-shell.sh" }]
+    }
+  },
+  "claudecode": {
+    "hooks": {
+      "notification": [
+        {
+          "matcher": "permission_prompt",
+          "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/notify.sh"
+        }
+      ],
+      "worktreeCreate": [{ "command": ".claude/hooks/worktree-setup.sh" }]
+    }
+  },
+  "opencode": {
+    "hooks": {
+      "afterShellExecution": [{ "command": ".rulesync/hooks/post-shell.sh" }]
+    }
+  },
+  "kilo": {
+    "hooks": {
+      "afterFileEdit": [{ "command": ".rulesync/hooks/post-edit.sh" }]
+    }
+  },
+  "copilot": {
+    "hooks": {
+      "afterError": [{ "command": ".rulesync/hooks/error-report.sh" }]
+    }
+  },
+  "geminicli": {
+    "hooks": {
+      "beforeAgentResponse": [{ "command": ".rulesync/hooks/pre-response.sh" }]
+    }
+  },
+  "codexcli": {
+    "hooks": {
+      "preToolUse": [{ "matcher": "Bash", "command": ".rulesync/hooks/codex-pre-tool.sh" }]
+    }
+  },
+  "factorydroid": {
+    "hooks": {
+      "setup": [{ "command": ".rulesync/hooks/factory-setup.sh" }]
+    }
+  },
+  "deepagents": {
+    "hooks": {
+      "permissionRequest": [{ "command": ".rulesync/hooks/permission-check.sh" }]
+    }
+  }
+}
+```
 
 ## `.copilot/mcp-config.json`
 
@@ -84,41 +194,6 @@ This file is used by the GitHub Copilot CLI for MCP server configuration. Rulesy
 - **Global mode:** `~/.copilot/mcp-config.json` (relative to home directory)
 
 Rulesync preserves explicit `type` values for `http`, `sse`, and `local` servers. For command-based servers that omit a transport type, Rulesync emits the mandatory `"type": "stdio"` field required by the Copilot CLI.
-
-Use optional **override keys** so tool-specific events and config live in one file without leaking to others: `cursor.hooks` for Cursor-only events, `claudecode.hooks` for Claude-only, `opencode.hooks` for OpenCode-only, `copilot.hooks` for GitHub Copilot-only, `geminicli.hooks` for Gemini CLI-only. Events in shared `hooks` that a tool does not support are skipped for that tool (and a warning is logged at generate time).
-
-Example:
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "sessionStart": [{ "type": "command", "command": ".rulesync/hooks/session-start.sh" }],
-    "postToolUse": [{ "matcher": "Write|Edit", "command": ".rulesync/hooks/format.sh" }],
-    "stop": [{ "command": ".rulesync/hooks/audit.sh" }]
-  },
-  "cursor": {
-    "hooks": {
-      "afterFileEdit": [{ "command": ".cursor/hooks/format.sh" }]
-    }
-  },
-  "claudecode": {
-    "hooks": {
-      "notification": [
-        {
-          "matcher": "permission_prompt",
-          "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/notify.sh"
-        }
-      ]
-    }
-  },
-  "opencode": {
-    "hooks": {
-      "afterShellExecution": [{ "command": ".rulesync/hooks/post-shell.sh" }]
-    }
-  }
-}
-```
 
 ## `rulesync/commands/*.md`
 
