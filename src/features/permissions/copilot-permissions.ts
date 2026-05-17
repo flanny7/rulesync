@@ -95,7 +95,7 @@ export class CopilotPermissions extends ToolPermissions {
     const config = rulesyncPermissions.getJson();
     const askCounter: AskCounter = { count: 0 };
 
-    const terminalApprove = buildTerminalApprove(config.permission.bash, askCounter);
+    const terminalApprove = buildTerminalApprove(config.permission.bash, askCounter, logger);
     const editsApprove = buildEditsApprove(
       config.permission.edit,
       config.permission.write,
@@ -278,7 +278,17 @@ function buildBooleanRules(
 function buildTerminalApprove(
   rules: Record<string, PermissionAction> | undefined,
   askCounter: AskCounter,
+  logger?: Logger,
 ): Record<string, boolean> | undefined {
+  if (rules && logger) {
+    for (const pattern of Object.keys(rules)) {
+      if (pattern.length >= 2 && pattern.startsWith("/") && pattern.endsWith("/")) {
+        logger.warn(
+          `Bash pattern '${pattern}' looks like a regular-expression key. Copilot treats chat.tools.terminal.autoApprove keys emitted by rulesync as literal command matches, not regex; see docs/reference/file-formats.md for Copilot scope details.`,
+        );
+      }
+    }
+  }
   return buildBooleanRules(rules, askCounter);
 }
 

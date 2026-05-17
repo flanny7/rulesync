@@ -1000,6 +1000,50 @@ describe("CopilotPermissions", () => {
     });
   });
 
+  describe("fromRulesyncPermissions / regex-style bash keys", () => {
+    it("should warn when a bash pattern looks like a regex key but still emit it literally", async () => {
+      const logger = createMockLogger();
+      const rulesyncPermissions = new RulesyncPermissions({
+        relativeDirPath: RULESYNC_RELATIVE_DIR_PATH,
+        relativeFilePath: RULESYNC_PERMISSIONS_FILE_NAME,
+        fileContent: JSON.stringify({
+          permission: { bash: { "/^git (status|log)/": "allow" } },
+        }),
+      });
+      const instance = await CopilotPermissions.fromRulesyncPermissions({
+        outputRoot: testDir,
+        rulesyncPermissions,
+        logger,
+      });
+      const content = JSON.parse(instance.getFileContent());
+      expect(content["chat.tools.terminal.autoApprove"]).toEqual({
+        "/^git (status|log)/": true,
+      });
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("looks like a regular-expression key"),
+      );
+    });
+
+    it("should not warn for ordinary glob-style bash patterns", async () => {
+      const logger = createMockLogger();
+      const rulesyncPermissions = new RulesyncPermissions({
+        relativeDirPath: RULESYNC_RELATIVE_DIR_PATH,
+        relativeFilePath: RULESYNC_PERMISSIONS_FILE_NAME,
+        fileContent: JSON.stringify({
+          permission: { bash: { "git *": "allow" } },
+        }),
+      });
+      await CopilotPermissions.fromRulesyncPermissions({
+        outputRoot: testDir,
+        rulesyncPermissions,
+        logger,
+      });
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("looks like a regular-expression key"),
+      );
+    });
+  });
+
   describe("BOM tolerance", () => {
     it("fromRulesyncPermissions should parse a BOM-prefixed settings.json, preserve unrelated keys, and emit BOM-free output", async () => {
       const logger = createMockLogger();
