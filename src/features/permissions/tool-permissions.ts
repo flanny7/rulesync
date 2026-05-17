@@ -28,6 +28,7 @@ export type ToolPermissionsFromFileParams = Pick<
   "outputRoot" | "validate"
 > & {
   global?: boolean;
+  logger?: Logger;
 };
 
 export type ToolPermissionsForDeletionParams = {

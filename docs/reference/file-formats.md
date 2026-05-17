@@ -549,4 +549,34 @@ For Cline CLI, this generates `.cline/command-permissions.json` (project mode on
 
 For Qwen Code, this generates `permissions.allow`, `permissions.ask`, and `permissions.deny` arrays in `.qwen/settings.json` (project mode) or `~/.qwen/settings.json` (global mode). The format mirrors Claude Code's: entries are `Bash(<pattern>)`, `Read(<pattern>)`, `Edit(<pattern>)`, `Write(<pattern>)`, `WebFetch(<pattern>)`, `WebSearch(<pattern>)`, `Grep(<pattern>)`, `Glob(<pattern>)`, `Agent(<pattern>)`, etc. Other top-level keys in `settings.json` are preserved on round-trip. Patterns may contain nested parentheses (e.g. `Bash(echo (a))`); Rulesync uses the **last** `)` as the closing delimiter when parsing, so inner parens round-trip. Malformed entries (missing closing paren, trailing characters) emit a warning; for **`deny`** they fall back to the catch-all pattern `*` (fail-closed: broadening a deny is the safer direction), but for **`allow` / `ask`** they are **dropped** rather than broadened — silently turning a narrow user rule into `*` would be a fail-open round-trip. Generation does not create the `.qwen/` directory until `writeAiFiles` runs, so dry-run is side-effect-free.
 
+### GitHub Copilot (.vscode/settings.json)
+
+GitHub Copilot manages the following four keys in `.vscode/settings.json` (v1):
+
+| rulesync canonical | Copilot key | Conversion rule |
+| ------------------ | --------------------------------- | ------------------------------------------------------------------ |
+| `bash` | `chat.tools.terminal.autoApprove` | `allow` → `true`, `deny` → `false` |
+| `edit` / `write` | `chat.tools.edits.autoApprove` | Merging (`edit` priority + warn) |
+| `webfetch` | `chat.tools.urls.autoApprove` | Emit boolean only |
+| `mcp__*` | `chat.mcp.access` | Aggregation: all-allow→`"all"` / all-deny→`"none"` / mixed→`"none"` + warn |
+
+#### v1 Limitations
+
+- `chat.tools.eligibleForAutoApproval` is not supported in v1 (because the official specifications for Copilot internal tool names like `readFile` / `webSearch` are not public). The `read` / `websearch` / `grep` / `glob` / `notebookedit` / `agent` categories are not output to the Copilot side after an aggregation warning.
+- `chat.tools.global.autoApprove` is not modified due to a granularity mismatch.
+- The `ask` action is skipped after a warning because there is no corresponding concept in Copilot.
+- Regular expression keys (`/.../` syntax) should not be used in the `bash` category (treated as literal matches on the Copilot side).
+- `chat.tools.eligibleForAutoApproval` may be managed at the organization level and cannot be overwritten in some cases.
+
+#### Lossy Restoration during Import (`toRulesyncPermissions`)
+
+| Copilot setting | rulesync restoration | Reason |
+| -------------------------------------------- | -------------------------------------- | ------------------------------------------- |
+| `edits.autoApprove` pattern | Restore `edit` only (do not generate `write`) | Collision avoidance |
+| `urls.autoApprove` `approveResponse` | Discarded | rulesync does not distinguish between Request/Response |
+| `terminal.autoApprove` `matchCommandLine` | Discarded | rulesync has no concept of whole command-line matching |
+| `mcp.access` | Not restored | Cannot be expanded into per-server rules |
+
+If a lossy import occurs, it is notified with a single aggregation warning.
+
 > **Note: Interaction with ignore feature.** Both the ignore feature and the permissions feature can manage `Read` tool deny entries in `.claude/settings.json`. When both features configure the `Read` tool, the **permissions feature takes precedence** and a warning is emitted. If you only need to restrict file reads based on glob patterns, use the ignore feature (`.rulesync/.aiignore`). Use permissions only when you need fine-grained `allow`/`ask`/`deny` control over the `Read` tool.

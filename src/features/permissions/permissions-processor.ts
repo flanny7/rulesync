@@ -11,6 +11,7 @@ import { AugmentcodePermissions } from "./augmentcode-permissions.js";
 import { ClaudecodePermissions } from "./claudecode-permissions.js";
 import { ClinePermissions } from "./cline-permissions.js";
 import { CodexcliPermissions, createCodexcliBashRulesFile } from "./codexcli-permissions.js";
+import { CopilotPermissions } from "./copilot-permissions.js";
 import { CursorPermissions } from "./cursor-permissions.js";
 import { GeminicliPermissions } from "./geminicli-permissions.js";
 import { KiloPermissions } from "./kilo-permissions.js";
@@ -31,6 +32,7 @@ const permissionsProcessorToolTargetTuple = [
   "claudecode",
   "cline",
   "codexcli",
+  "copilot",
   "cursor",
   "geminicli",
   "kilo",
@@ -100,6 +102,17 @@ const toolPermissionsFactories = new Map<PermissionsProcessorToolTarget, ToolPer
       meta: {
         supportsProject: true,
         supportsGlobal: true,
+        supportsImport: true,
+      },
+    },
+  ],
+  [
+    "copilot",
+    {
+      class: CopilotPermissions,
+      meta: {
+        supportsProject: true,
+        supportsGlobal: false,
         supportsImport: true,
       },
     },
@@ -243,6 +256,7 @@ export class PermissionsProcessor extends FeatureProcessor {
         outputRoot: this.outputRoot,
         validate: true,
         global: this.global,
+        logger: this.logger,
       });
       return [toolPermissions];
     } catch (error) {

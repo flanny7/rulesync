@@ -13,6 +13,7 @@ import { AugmentcodePermissions } from "./augmentcode-permissions.js";
 import { ClaudecodePermissions } from "./claudecode-permissions.js";
 import { ClinePermissions } from "./cline-permissions.js";
 import { CodexcliPermissions } from "./codexcli-permissions.js";
+import { CopilotPermissions } from "./copilot-permissions.js";
 import { GeminicliPermissions } from "./geminicli-permissions.js";
 import { KiloPermissions } from "./kilo-permissions.js";
 import { KiroPermissions } from "./kiro-permissions.js";
@@ -83,6 +84,7 @@ describe("PermissionsProcessor", () => {
         "claudecode",
         "cline",
         "codexcli",
+        "copilot",
         "cursor",
         "geminicli",
         "kilo",
@@ -113,6 +115,7 @@ describe("PermissionsProcessor", () => {
         "claudecode",
         "cline",
         "codexcli",
+        "copilot",
         "cursor",
         "geminicli",
         "kilo",
@@ -550,5 +553,116 @@ default_permissions = "rulesync"
       expect(content.permissions.deny).toContain("Bash(rm *)");
       expect(content.permissions.deny).toContain("Read(.env)");
     });
+  });
+});
+
+describe("PermissionsProcessor / copilot target", () => {
+  let testDir: string;
+  let cleanup: () => Promise<void>;
+
+  beforeEach(async () => {
+    ({ testDir, cleanup } = await setupTestDirectory());
+    vi.spyOn(process, "cwd").mockReturnValue(testDir);
+  });
+
+  afterEach(async () => {
+    await cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("should accept 'copilot' as a valid tool target", () => {
+    const processor = new PermissionsProcessor({
+      outputRoot: testDir,
+      toolTarget: "copilot",
+      logger: createMockLogger(),
+    });
+    expect(processor).toBeInstanceOf(PermissionsProcessor);
+  });
+
+  it("should include 'copilot' in project tool targets", () => {
+    const targets = PermissionsProcessor.getToolTargets({ global: false });
+    expect(targets).toContain("copilot");
+  });
+
+  it("should NOT include 'copilot' in global tool targets", () => {
+    const targets = PermissionsProcessor.getToolTargets({ global: true });
+    expect(targets).not.toContain("copilot");
+  });
+
+  it("should include 'copilot' in import-only tool targets", () => {
+    const targets = PermissionsProcessor.getToolTargets({ importOnly: true });
+    expect(targets).toContain("copilot");
+  });
+
+  it("should generate .vscode/settings.json from rulesync permissions", async () => {
+    const rulesyncDir = join(testDir, RULESYNC_RELATIVE_DIR_PATH);
+    await ensureDir(rulesyncDir);
+    await writeFileContent(
+      join(rulesyncDir, RULESYNC_PERMISSIONS_FILE_NAME),
+      JSON.stringify({
+        permission: {
+          bash: { "git *": "allow", "rm -rf *": "deny" },
+          edit: { "src/**": "allow", "**/.env": "deny" },
+          webfetch: { "https://github.com/*": "allow" },
+          mcp__server__tool: { "*": "deny" },
+        },
+      }),
+    );
+
+    const processor = new PermissionsProcessor({
+      logger: createMockLogger(),
+      outputRoot: testDir,
+      toolTarget: "copilot",
+    });
+
+    const rulesyncFiles = await processor.loadRulesyncFiles();
+    const toolFiles = await processor.convertRulesyncFilesToToolFiles(rulesyncFiles);
+    expect(toolFiles).toHaveLength(1);
+    expect(toolFiles[0]).toBeInstanceOf(CopilotPermissions);
+    await processor.writeAiFiles(toolFiles);
+
+    const settingsPath = join(testDir, ".vscode", "settings.json");
+    const content = JSON.parse(await readFileContent(settingsPath));
+    expect(content["chat.tools.terminal.autoApprove"]).toEqual({
+      "git *": true,
+      "rm -rf *": false,
+    });
+    expect(content["chat.tools.edits.autoApprove"]).toEqual({
+      "src/**": true,
+      "**/.env": false,
+    });
+    expect(content["chat.tools.urls.autoApprove"]).toEqual({
+      "https://github.com/*": true,
+    });
+    expect(content["chat.mcp.access"]).toBe("none");
+  });
+
+  it("should import .vscode/settings.json into rulesync permissions", async () => {
+    const settingsDir = join(testDir, ".vscode");
+    await ensureDir(settingsDir);
+    await writeFileContent(
+      join(settingsDir, "settings.json"),
+      JSON.stringify({
+        "chat.tools.terminal.autoApprove": { "git *": true, "rm *": false },
+        "chat.tools.edits.autoApprove": { "src/**": true },
+        "chat.tools.urls.autoApprove": { "github.com/*": true },
+      }),
+    );
+
+    const processor = new PermissionsProcessor({
+      logger: createMockLogger(),
+      outputRoot: testDir,
+      toolTarget: "copilot",
+    });
+
+    const toolFiles = await processor.loadToolFiles();
+    expect(toolFiles).toHaveLength(1);
+    expect(toolFiles[0]).toBeInstanceOf(CopilotPermissions);
+
+    const rulesyncFiles = await processor.convertToolFilesToRulesyncFiles(toolFiles);
+    const config = (rulesyncFiles[0] as RulesyncPermissions).getJson();
+    expect(config.permission.bash).toEqual({ "git *": "allow", "rm *": "deny" });
+    expect(config.permission.edit).toEqual({ "src/**": "allow" });
+    expect(config.permission.webfetch).toEqual({ "github.com/*": "allow" });
   });
 });

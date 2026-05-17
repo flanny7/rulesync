@@ -144,6 +144,10 @@ export const GITIGNORE_ENTRY_REGISTRY: ReadonlyArray<GitignoreEntryTag> = [
   { target: "goose", feature: "ignore", entry: "**/.gooseignore" },
 
   // GitHub Copilot
+  // NOTE: .vscode/settings.json is intentionally excluded from gitignore
+  // because it is shared with VS Code itself; adding it would cause serious
+  // side-effects (ignoring editor settings, extensions recommendations, etc.).
+  // Permissions are applied non-destructively via jsonc-parser modify/applyEdits.
   {
     target: ["copilot", "copilotcli"],
     feature: "rules",
