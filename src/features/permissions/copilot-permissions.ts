@@ -47,6 +47,13 @@ export class CopilotPermissions extends ToolPermissions {
       ...params,
       fileContent: params.fileContent ?? "{}",
     });
+    // NOTE: Unlike QwencodePermissions, we intentionally do NOT call this.validate()
+    // here even when params.validate is set. .vscode/settings.json is a file shared
+    // with VS Code itself; a malformed or non-Copilot settings.json must NOT abort
+    // `generate`, or callers risk losing unrelated editor settings. The warn-and-
+    // preserve policy in toRulesyncPermissions() and applyKey() is the deliberate
+    // substitute for construction-time validation. Do not "fix" this to match the
+    // qwen validate-in-constructor pattern.
     this.logger = params.logger;
   }
 
