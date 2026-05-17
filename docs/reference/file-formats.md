@@ -565,6 +565,7 @@ GitHub Copilot manages the following four keys in `.vscode/settings.json` (v1):
 - `chat.tools.eligibleForAutoApproval` is not supported in v1 (because the official specifications for Copilot internal tool names like `readFile` / `webSearch` are not public). The `read` / `websearch` / `grep` / `glob` / `notebookedit` / `agent` categories are not output to the Copilot side after an aggregation warning.
 - `chat.tools.global.autoApprove` is not modified due to a granularity mismatch.
 - The `ask` action is skipped after a warning because there is no corresponding concept in Copilot.
+- When **all** `mcp__*` rules resolve to `ask` (no `allow`/`deny`), `chat.mcp.access` is **left untouched**: an existing value in `.vscode/settings.json` is intentionally preserved rather than reset, since rulesync's `ask` has no Copilot equivalent and overwriting it would be a destructive, non-round-trippable change.
 - Regular expression keys (`/.../` syntax) should not be used in the `bash` category (treated as literal matches on the Copilot side).
 - `chat.tools.eligibleForAutoApproval` may be managed at the organization level and cannot be overwritten in some cases.
 
