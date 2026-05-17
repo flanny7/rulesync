@@ -137,7 +137,7 @@ export class CopilotPermissions extends ToolPermissions {
 
   toRulesyncPermissions(): RulesyncPermissions {
     const parseErrors: ParseError[] = [];
-    const parsed: unknown = jsoncParse(this.getFileContent(), parseErrors);
+    const parsed: unknown = jsoncParse(stripBom(this.getFileContent()), parseErrors);
 
     // Unlike peer Permissions classes which throw on parse errors, Copilot warns and
     // returns empty here. .vscode/settings.json is a user-shared workspace file with
@@ -213,7 +213,7 @@ export class CopilotPermissions extends ToolPermissions {
 
   validate(): ValidationResult {
     const parseErrors: ParseError[] = [];
-    jsoncParse(this.getFileContent(), parseErrors);
+    jsoncParse(stripBom(this.getFileContent()), parseErrors);
     if (parseErrors.length > 0) {
       return {
         success: false,
@@ -238,6 +238,16 @@ export class CopilotPermissions extends ToolPermissions {
       validate: false,
     });
   }
+}
+
+/**
+ * jsonc-parser does not strip a UTF-8 BOM; a BOM-prefixed settings.json is
+ * otherwise reported as InvalidSymbol and would silently skip every Copilot
+ * write. VS Code itself tolerates a BOM in settings.json, so we strip it before
+ * parsing and emit BOM-free content (which VS Code also accepts).
+ */
+function stripBom(content: string): string {
+  return content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
 }
 
 function actionToBoolean(action: PermissionAction): boolean | null {
@@ -376,7 +386,8 @@ function applyKey(
   logger?: Logger,
 ): string {
   const parseErrors: ParseError[] = [];
-  const parsed: unknown = jsoncParse(source, parseErrors);
+  const src = stripBom(source);
+  const parsed: unknown = jsoncParse(src, parseErrors);
   if (parseErrors.length > 0) {
     // Same rationale as toRulesyncPermissions: warn-and-return preserves unrelated settings.
     // Skip the merge entirely to avoid overwriting corrupted settings.json.
@@ -405,10 +416,10 @@ function applyKey(
     }
     merged = result;
   }
-  const edits: Edit[] = modify(source, [key], merged, {
+  const edits: Edit[] = modify(src, [key], merged, {
     formattingOptions: { tabSize: 2, insertSpaces: true },
   });
-  return applyEdits(source, edits);
+  return applyEdits(src, edits);
 }
 
 type LossyCounters = {

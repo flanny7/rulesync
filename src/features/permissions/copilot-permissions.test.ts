@@ -999,4 +999,53 @@ describe("CopilotPermissions", () => {
       expect(logger.warn).not.toHaveBeenCalled();
     });
   });
+
+  describe("BOM tolerance", () => {
+    it("fromRulesyncPermissions should parse a BOM-prefixed settings.json, preserve unrelated keys, and emit BOM-free output", async () => {
+      const logger = createMockLogger();
+      const settingsDir = join(testDir, ".vscode");
+      await ensureDir(settingsDir);
+      await writeFileContent(
+        join(settingsDir, "settings.json"),
+        "﻿" + JSON.stringify({ "editor.tabSize": 2 }),
+      );
+      const rulesyncPermissions = new RulesyncPermissions({
+        relativeDirPath: RULESYNC_RELATIVE_DIR_PATH,
+        relativeFilePath: RULESYNC_PERMISSIONS_FILE_NAME,
+        fileContent: JSON.stringify({
+          permission: { bash: { "git *": "allow" } },
+        }),
+      });
+      const instance = await CopilotPermissions.fromRulesyncPermissions({
+        outputRoot: testDir,
+        rulesyncPermissions,
+        logger,
+      });
+      const raw = instance.getFileContent();
+      expect(raw.charCodeAt(0)).not.toBe(0xfeff);
+      const content = JSON.parse(raw);
+      expect(content["editor.tabSize"]).toBe(2);
+      expect(content["chat.tools.terminal.autoApprove"]).toEqual({ "git *": true });
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("JSONC parse errors"),
+      );
+    });
+
+    it("toRulesyncPermissions should parse a BOM-prefixed settings.json without a parse-error warning", () => {
+      const logger = createMockLogger();
+      const instance = new CopilotPermissions({
+        relativeDirPath: ".vscode",
+        relativeFilePath: "settings.json",
+        fileContent:
+          "﻿" +
+          JSON.stringify({ "chat.tools.terminal.autoApprove": { "git *": true } }),
+        logger,
+      });
+      const rulesync = JSON.parse(instance.toRulesyncPermissions().getFileContent());
+      expect(rulesync.permission.bash).toEqual({ "git *": "allow" });
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("Failed to parse Copilot permissions content"),
+      );
+    });
+  });
 });
