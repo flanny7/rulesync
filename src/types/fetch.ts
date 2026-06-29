@@ -40,6 +40,14 @@ export type ParsedSource = {
 };
 
 /**
+ * Parsed GitHub Gist source specification for declarative skill installation.
+ */
+export type ParsedGistSource = {
+  gistId: string;
+  owner?: string;
+};
+
+/**
  * Fetch command options
  */
 const FetchOptionsSchema = z.looseObject({
@@ -105,6 +113,47 @@ export const GitHubRepoInfoSchema = z.looseObject({
   private: z.boolean(),
 });
 export type GitHubRepoInfo = z.infer<typeof GitHubRepoInfoSchema>;
+
+/**
+ * File metadata and optional inline content returned by the Gist API.
+ */
+export const GitHubGistFileSchema = z.looseObject({
+  filename: z.string(),
+  size: z.number(),
+  raw_url: z.nullable(z.string()),
+  truncated: z.optional(z.boolean()),
+  content: z.optional(z.string()),
+});
+
+/**
+ * Gist response fields used for deterministic skill installation.
+ */
+export const GitHubGistResponseSchema = z.looseObject({
+  files: z.record(z.string(), GitHubGistFileSchema),
+  history: z.array(
+    z.looseObject({
+      version: z.string(),
+    }),
+  ),
+  truncated: z.optional(z.boolean()),
+});
+
+/**
+ * Normalized Gist file returned by GitHubClient.
+ */
+export type GitHubGistFile = {
+  filename: string;
+  size: number;
+  content: string;
+};
+
+/**
+ * Normalized Gist revision returned by GitHubClient.
+ */
+export type GitHubGist = {
+  version: string;
+  files: GitHubGistFile[];
+};
 
 /**
  * GitHub release asset from releases API

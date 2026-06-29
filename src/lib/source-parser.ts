@@ -1,9 +1,62 @@
-import type { ParsedSource } from "../types/fetch.js";
+import type { ParsedGistSource, ParsedSource } from "../types/fetch.js";
 import type { GitProvider } from "../types/git-provider.js";
 import { ALL_GIT_PROVIDERS } from "../types/git-provider.js";
 
 const GITHUB_HOSTS = new Set(["github.com", "www.github.com"]);
 const GITLAB_HOSTS = new Set(["gitlab.com", "www.gitlab.com"]);
+const GIST_HOSTS = new Set(["gist.github.com", "www.gist.github.com"]);
+
+/**
+ * Return whether a source uses the GitHub Gist URL or shorthand format.
+ */
+export function isGistSource(source: string): boolean {
+  if (source.startsWith("gist:")) return true;
+  if (!source.startsWith("http://") && !source.startsWith("https://")) return false;
+
+  try {
+    return GIST_HOSTS.has(new URL(source).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parse a GitHub Gist source.
+ * Supports `gist:<id>`, `https://gist.github.com/<id>`, and
+ * `https://gist.github.com/<owner>/<id>`.
+ */
+export function parseGistSource(source: string): ParsedGistSource {
+  let gistId: string;
+  let owner: string | undefined;
+
+  if (source.startsWith("gist:")) {
+    gistId = source.substring("gist:".length);
+  } else {
+    const url = new URL(source);
+    const host = url.hostname.toLowerCase();
+    if (!GIST_HOSTS.has(host)) {
+      throw new Error(`Invalid Gist URL host: ${host}. Expected gist.github.com.`);
+    }
+
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (segments.length === 1) {
+      [gistId = ""] = segments;
+    } else if (segments.length === 2) {
+      [owner, gistId = ""] = segments;
+    } else {
+      throw new Error(
+        `Invalid Gist URL: ${source}. Expected https://gist.github.com/<owner>/<gist-id>.`,
+      );
+    }
+  }
+
+  gistId = gistId.replace(/\.git$/, "");
+  if (!/^[0-9a-f]+$/i.test(gistId)) {
+    throw new Error(`Invalid Gist ID: ${gistId || "(empty)"}. Expected a hexadecimal Gist ID.`);
+  }
+
+  return owner === undefined ? { gistId } : { gistId, owner };
+}
 
 /**
  * Parse source specification into components

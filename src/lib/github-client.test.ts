@@ -198,6 +198,103 @@ describe("GitHubClient", () => {
     });
   });
 
+  describe("getGist", () => {
+    const version = "a".repeat(40);
+
+    it("should return the latest Gist revision with inline file content", async () => {
+      const mockFetch = vi.spyOn(global, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            files: {
+              "SKILL.md": {
+                filename: "SKILL.md",
+                size: 42,
+                raw_url: "https://gist.githubusercontent.com/octocat/id/raw/SKILL.md",
+                truncated: false,
+                content: "---\nname: gist-skill\n---\n",
+              },
+            },
+            history: [{ version }],
+            truncated: false,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      const client = new GitHubClient();
+      const gist = await client.getGist("aa5a315d61ae9438b18d");
+
+      expect(gist).toEqual({
+        version,
+        files: [
+          {
+            filename: "SKILL.md",
+            size: 42,
+            content: "---\nname: gist-skill\n---\n",
+          },
+        ],
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.github.com/gists/aa5a315d61ae9438b18d",
+        expect.anything(),
+      );
+    });
+
+    it("should fetch truncated file content from the validated raw URL", async () => {
+      const mockFetch = vi
+        .spyOn(global, "fetch")
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              files: {
+                "SKILL.md": {
+                  filename: "SKILL.md",
+                  size: 1_100_000,
+                  raw_url: "https://gist.githubusercontent.com/octocat/id/raw/SKILL.md",
+                  truncated: true,
+                  content: "partial",
+                },
+              },
+              history: [{ version }],
+              truncated: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(new Response("complete content", { status: 200 }));
+
+      const client = new GitHubClient({ token: "gist-token" });
+      const gist = await client.getGist("aa5a315d61ae9438b18d");
+
+      expect(gist.files[0]?.content).toBe("complete content");
+      const rawRequest = mockFetch.mock.calls[1];
+      expect(rawRequest?.[0].toString()).toBe(
+        "https://gist.githubusercontent.com/octocat/id/raw/SKILL.md",
+      );
+      expect(rawRequest?.[1]?.headers).toEqual({
+        Accept: "application/vnd.github.raw",
+        Authorization: "token gist-token",
+      });
+    });
+
+    it("should request a locked Gist revision", async () => {
+      const mockFetch = vi.spyOn(global, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ files: {}, history: [{ version }], truncated: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      const client = new GitHubClient();
+      await client.getGist("aa5a315d61ae9438b18d", version);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        `https://api.github.com/gists/aa5a315d61ae9438b18d/${version}`,
+        expect.anything(),
+      );
+    });
+  });
+
   describe("validateRepository", () => {
     it("should return true for existing repository", async () => {
       vi.spyOn(global, "fetch").mockResolvedValueOnce(

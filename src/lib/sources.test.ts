@@ -31,6 +31,9 @@ vi.mock("./github-client.js", () => ({
     resolveRefToSha(...args: any[]) {
       return mockClientInstance.resolveRefToSha(...args);
     }
+    getGist(...args: any[]) {
+      return mockClientInstance.getGist(...args);
+    }
   },
   GitHubClientError: class GitHubClientError extends Error {
     statusCode?: number;
@@ -94,6 +97,7 @@ describe("resolveAndFetchSources", () => {
       resolveRefToSha: vi.fn().mockResolvedValue("abc123def456"),
       listDirectory: vi.fn().mockResolvedValue([]),
       getFileContent: vi.fn().mockResolvedValue("file content"),
+      getGist: vi.fn(),
     };
 
     // Default: no curated dir, no local skills
@@ -124,6 +128,74 @@ describe("resolveAndFetchSources", () => {
 
     expect(result).toEqual({ fetchedSkillCount: 0, sourcesProcessed: 0 });
     expect(mockClientInstance.getDefaultBranch).not.toHaveBeenCalled();
+  });
+
+  it("should install a Gist as one skill using the SKILL.md frontmatter name", async () => {
+    const version = "a".repeat(40);
+    const skillContent = "---\nname: gist-skill\ndescription: From a Gist\n---\n# Skill\n";
+    mockClientInstance.getGist.mockResolvedValue({
+      version,
+      files: [
+        { filename: "SKILL.md", size: skillContent.length, content: skillContent },
+        { filename: "reference.md", size: 9, content: "Reference" },
+      ],
+    });
+
+    const result = await resolveAndFetchSources({
+      logger,
+      sources: [{ source: "https://gist.github.com/octocat/aa5a315d61ae9438b18d" }],
+      projectRoot: testDir,
+    });
+
+    const curatedSkillDir = join(testDir, RULESYNC_CURATED_SKILLS_RELATIVE_DIR_PATH, "gist-skill");
+    expect(result).toEqual({ fetchedSkillCount: 1, sourcesProcessed: 1 });
+    expect(mockClientInstance.getGist).toHaveBeenCalledWith("aa5a315d61ae9438b18d", undefined);
+    expect(writeFileContent).toHaveBeenCalledWith(join(curatedSkillDir, "SKILL.md"), skillContent);
+    expect(writeFileContent).toHaveBeenCalledWith(
+      join(curatedSkillDir, "reference.md"),
+      "Reference",
+    );
+
+    const { writeLockFile } = await import("./sources-lock.js");
+    expect(writeLockFile).toHaveBeenCalledWith({
+      projectRoot: testDir,
+      logger,
+      lock: {
+        lockfileVersion: 1,
+        sources: {
+          "https://gist.github.com/octocat/aa5a315d61ae9438b18d": {
+            requestedRef: undefined,
+            resolvedRef: version,
+            resolvedAt: expect.any(String),
+            skills: {
+              "gist-skill": { integrity: expect.stringMatching(/^sha256-/) },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("should apply a skill name filter to a Gist", async () => {
+    const skillContent = "---\nname: gist-skill\ndescription: From a Gist\n---\n";
+    mockClientInstance.getGist.mockResolvedValue({
+      version: "b".repeat(40),
+      files: [{ filename: "SKILL.md", size: skillContent.length, content: skillContent }],
+    });
+
+    const result = await resolveAndFetchSources({
+      logger,
+      sources: [
+        {
+          source: "gist:aa5a315d61ae9438b18d",
+          skills: ["another-skill"],
+        },
+      ],
+      projectRoot: testDir,
+    });
+
+    expect(result).toEqual({ fetchedSkillCount: 0, sourcesProcessed: 1 });
+    expect(writeFileContent).not.toHaveBeenCalled();
   });
 
   it("should clean per-source locked skill directories before re-fetching", async () => {

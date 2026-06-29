@@ -17,6 +17,7 @@ import {
   removeDirectory,
   writeFileContent,
 } from "../utils/file.js";
+import { parseFrontmatter } from "../utils/frontmatter.js";
 import type { Logger } from "../utils/logger.js";
 import {
   GitClientError,
@@ -27,7 +28,7 @@ import {
 } from "./git-client.js";
 import { GitHubClient, GitHubClientError, logGitHubAuthHints } from "./github-client.js";
 import { listDirectoryRecursive, withSemaphore } from "./github-utils.js";
-import { parseSource } from "./source-parser.js";
+import { isGistSource, parseGistSource, parseSource } from "./source-parser.js";
 import {
   type LockedSkill,
   type LockedSource,
@@ -149,6 +150,16 @@ export async function resolveAndFetchSources(params: {
   return { fetchedSkillCount: totalSkillCount, sourcesProcessed: sources.length };
 }
 
+function getGistSkillName(params: { sourceKey: string; skillContent: string }): string {
+  const { sourceKey, skillContent } = params;
+  const { frontmatter } = parseFrontmatter(skillContent, `${sourceKey}#SKILL.md`);
+  const name = frontmatter["name"];
+  if (typeof name !== "string" || name.trim().length === 0) {
+    throw new Error(`Gist source ${sourceKey} must define a non-empty "name" in SKILL.md.`);
+  }
+  return name.trim();
+}
+
 /**
  * Log contextual hints for GitClientError to help users troubleshoot.
  */
@@ -221,6 +232,18 @@ async function fetchSourceByTransport(params: {
       alreadyFetchedSkillNames,
       updateSources,
       frozen,
+      logger,
+    });
+  }
+  if (isGistSource(sourceEntry.source)) {
+    return fetchGistSource({
+      sourceEntry,
+      client,
+      projectRoot,
+      lock,
+      localSkillNames,
+      alreadyFetchedSkillNames,
+      updateSources,
       logger,
     });
   }
@@ -312,7 +335,12 @@ function shouldSkipSkill(params: {
   logger: Logger;
 }): boolean {
   const { skillName, sourceKey, localSkillNames, alreadyFetchedSkillNames, logger } = params;
-  if (skillName.includes("..") || skillName.includes("/") || skillName.includes("\\")) {
+  if (
+    skillName === "." ||
+    skillName.includes("..") ||
+    skillName.includes("/") ||
+    skillName.includes("\\")
+  ) {
     logger.warn(
       `Skipping skill with invalid name "${skillName}" from ${sourceKey}: contains path traversal characters.`,
     );
@@ -473,6 +501,133 @@ function groupRemoteFilesBySkillRoot(params: {
 // ---------------------------------------------------------------------------
 // Transport-specific fetch functions
 // ---------------------------------------------------------------------------
+
+/**
+ * Fetch one skill from a GitHub Gist. A Gist represents a single skill and
+ * must include SKILL.md; its frontmatter name determines the install directory.
+ */
+async function fetchGistSource(params: {
+  sourceEntry: SourceEntry;
+  client: GitHubClient;
+  projectRoot: string;
+  lock: SourcesLock;
+  localSkillNames: Set<string>;
+  alreadyFetchedSkillNames: Set<string>;
+  updateSources: boolean;
+  logger: Logger;
+}): Promise<{
+  skillCount: number;
+  fetchedSkillNames: string[];
+  updatedLock: SourcesLock;
+}> {
+  const {
+    sourceEntry,
+    client,
+    projectRoot,
+    localSkillNames,
+    alreadyFetchedSkillNames,
+    updateSources,
+    logger,
+  } = params;
+  const { lock } = params;
+  const sourceKey = sourceEntry.source;
+  const { gistId } = parseGistSource(sourceKey);
+  if (sourceEntry.path !== undefined) {
+    throw new Error(`Gist source ${sourceKey} does not support the "path" field.`);
+  }
+  const locked = getLockedSource(lock, sourceKey);
+  const lockedSkillNames = locked ? getLockedSkillNames(locked) : [];
+  const curatedDir = join(projectRoot, RULESYNC_CURATED_SKILLS_RELATIVE_DIR_PATH);
+
+  if (locked && lockedSkillNames.length > 0 && !updateSources) {
+    const allExist = await checkLockedSkillsExist(curatedDir, lockedSkillNames);
+    if (allExist) {
+      logger.debug(`Gist revision unchanged for ${sourceKey}, skipping re-fetch.`);
+      return {
+        skillCount: 0,
+        fetchedSkillNames: lockedSkillNames,
+        updatedLock: lock,
+      };
+    }
+  }
+
+  const requestedRef = locked && !updateSources ? locked.requestedRef : sourceEntry.ref;
+  const revision = locked && !updateSources ? locked.resolvedRef : sourceEntry.ref;
+  const gist = await client.getGist(gistId, revision);
+  const resolvedSha = gist.version;
+  logger.debug(`Resolved ${sourceKey} to Gist revision: ${resolvedSha}`);
+
+  const skillFile = gist.files.find((file) => file.filename === "SKILL.md");
+  if (!skillFile) {
+    throw new Error(`Gist source ${sourceKey} must contain a SKILL.md file.`);
+  }
+  if (skillFile.size > MAX_FILE_SIZE) {
+    throw new Error(
+      `Gist source ${sourceKey} SKILL.md exceeds the ${MAX_FILE_SIZE / 1024 / 1024}MB limit.`,
+    );
+  }
+
+  const skillName = getGistSkillName({ sourceKey, skillContent: skillFile.content });
+  const skillFilter = sourceEntry.skills ?? ["*"];
+  const selected = skillFilter.includes("*") || skillFilter.includes(skillName);
+  const remoteSkillNames = selected ? [skillName] : [];
+  const fetchedSkills: Record<string, LockedSkill> = {};
+
+  if (locked) {
+    await cleanPreviousCuratedSkills({ curatedDir, lockedSkillNames, logger });
+  }
+
+  if (
+    selected &&
+    !shouldSkipSkill({
+      skillName,
+      sourceKey,
+      localSkillNames,
+      alreadyFetchedSkillNames,
+      logger,
+    })
+  ) {
+    const files = gist.files
+      .filter((file) => {
+        if (file.size > MAX_FILE_SIZE) {
+          logger.warn(
+            `Skipping file "${file.filename}" (${(file.size / 1024 / 1024).toFixed(2)}MB exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB limit).`,
+          );
+          return false;
+        }
+        return true;
+      })
+      .map((file) => ({ relativePath: file.filename, content: file.content }));
+
+    fetchedSkills[skillName] = await writeSkillAndComputeIntegrity({
+      skillName,
+      files,
+      curatedDir,
+      locked,
+      resolvedSha,
+      sourceKey,
+      logger,
+    });
+    logger.debug(`Fetched skill "${skillName}" from Gist ${sourceKey}`);
+  }
+
+  const result = buildLockUpdate({
+    lock,
+    sourceKey,
+    fetchedSkills,
+    locked,
+    requestedRef,
+    resolvedSha,
+    remoteSkillNames,
+    logger,
+  });
+
+  return {
+    skillCount: result.fetchedNames.length,
+    fetchedSkillNames: result.fetchedNames,
+    updatedLock: result.updatedLock,
+  };
+}
 
 /**
  * Resolve a GitHub source's ref to a commit SHA, preferring the locked SHA for

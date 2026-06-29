@@ -6,11 +6,13 @@ import type {
   GitHubApiError,
   GitHubClientConfig,
   GitHubFileEntry,
+  GitHubGist,
   GitHubRelease,
   GitHubRepoInfo,
 } from "../types/fetch.js";
 import {
   GitHubFileEntrySchema,
+  GitHubGistResponseSchema,
   GitHubReleaseSchema,
   GitHubRepoInfoSchema,
 } from "../types/fetch.js";
@@ -53,6 +55,7 @@ export function logGitHubAuthHints(params: { error: GitHubClientError; logger: L
 export class GitHubClient {
   private readonly octokit: Octokit;
   private readonly hasToken: boolean;
+  private readonly token: string | undefined;
 
   constructor(config: GitHubClientConfig = {}) {
     // Validate custom baseUrl uses HTTPS to prevent token exposure
@@ -61,6 +64,7 @@ export class GitHubClient {
     }
 
     this.hasToken = !!config.token;
+    this.token = config.token;
     this.octokit = new Octokit({
       auth: config.token,
       baseUrl: config.baseUrl,
@@ -227,6 +231,85 @@ export class GitHubClient {
       }
       throw error;
     }
+  }
+
+  /**
+   * Get a Gist revision with complete file contents.
+   */
+  async getGist(gistId: string, revision?: string): Promise<GitHubGist> {
+    try {
+      const { data } = revision
+        ? await this.octokit.gists.getRevision({ gist_id: gistId, sha: revision })
+        : await this.octokit.gists.get({ gist_id: gistId });
+      const parsed = GitHubGistResponseSchema.safeParse(data);
+      if (!parsed.success) {
+        throw new GitHubClientError(`Invalid Gist response: ${formatError(parsed.error)}`);
+      }
+      if (parsed.data.truncated) {
+        throw new GitHubClientError(
+          `Gist ${gistId} contains more files than the GitHub API can return. Use transport "git" instead.`,
+        );
+      }
+
+      const version = revision
+        ? parsed.data.history.find((entry) => entry.version.startsWith(revision))?.version
+        : parsed.data.history[0]?.version;
+      if (!version || !/^[0-9a-f]{40}$/i.test(version)) {
+        throw new GitHubClientError(
+          `Gist ${gistId} response did not include a valid revision SHA.`,
+        );
+      }
+
+      const files = await Promise.all(
+        Object.values(parsed.data.files).map(async (file) => ({
+          filename: file.filename,
+          size: file.size,
+          content:
+            file.size > MAX_FILE_SIZE
+              ? ""
+              : !file.truncated && file.content !== undefined
+                ? file.content
+                : await this.getRawGistFileContent({
+                    gistId,
+                    filename: file.filename,
+                    rawUrl: file.raw_url,
+                  }),
+        })),
+      );
+
+      return { version, files };
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  private async getRawGistFileContent(params: {
+    gistId: string;
+    filename: string;
+    rawUrl: string | null;
+  }): Promise<string> {
+    const { gistId, filename, rawUrl } = params;
+    if (!rawUrl) {
+      throw new GitHubClientError(
+        `Gist ${gistId} file "${filename}" has no inline content or raw URL.`,
+      );
+    }
+
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" || url.hostname !== "gist.githubusercontent.com") {
+      throw new GitHubClientError(`Gist ${gistId} file "${filename}" has an unsafe raw URL.`);
+    }
+
+    const headers: Record<string, string> = { Accept: "application/vnd.github.raw" };
+    if (this.token) headers["Authorization"] = `token ${this.token}`;
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      throw new GitHubClientError(
+        `Failed to fetch Gist ${gistId} file "${filename}": HTTP ${response.status}`,
+        response.status,
+      );
+    }
+    return await response.text();
   }
 
   /**

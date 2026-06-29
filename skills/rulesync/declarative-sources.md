@@ -1,6 +1,6 @@
 # Declarative Skill Sources
 
-Rulesync can fetch skills from external repositories using the `install` command. Instead of manually running `fetch` for each skill source, declare them in your `rulesync.jsonc` and run `rulesync install` to resolve and fetch them. Then `rulesync generate` picks them up as local curated skills. Typical workflow: `rulesync install && rulesync generate`.
+Rulesync can fetch skills from external repositories and GitHub Gists using the `install` command. Instead of manually running `fetch` for each skill source, declare them in your `rulesync.jsonc` and run `rulesync install` to resolve and fetch them. Then `rulesync generate` picks them up as local curated skills. Typical workflow: `rulesync install && rulesync generate`.
 
 ## Configuration
 
@@ -20,6 +20,15 @@ Add a `sources` array to your `rulesync.jsonc`:
 
     // With ref pinning and subdirectory path (same syntax as fetch command)
     { "source": "owner/repo@v1.0.0:path/to/skills" },
+
+    // Install one skill from a Gist. SKILL.md frontmatter supplies its name.
+    { "source": "https://gist.github.com/octocat/aa5a315d61ae9438b18d" },
+
+    // Gist shorthand with an optional pinned revision
+    {
+      "source": "gist:aa5a315d61ae9438b18d",
+      "ref": "0123456789abcdef0123456789abcdef01234567",
+    },
 
     // Git transport — works with any git remote (Azure DevOps, Bitbucket, etc.)
     {
@@ -44,13 +53,13 @@ Add a `sources` array to your `rulesync.jsonc`:
 
 Each entry in `sources` accepts:
 
-| Property    | Type       | Description                                                                                                                                                                                                           |
-| ----------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `source`    | `string`   | Repository source. For GitHub transport: `owner/repo` or `owner/repo@ref:path`. For git transport: a full git URL.                                                                                                    |
-| `skills`    | `string[]` | Optional list of skill names to fetch. If omitted, all skills are fetched.                                                                                                                                            |
-| `transport` | `string`   | `"github"` (default) uses the GitHub REST API. `"git"` uses git CLI and works with any git remote.                                                                                                                    |
-| `ref`       | `string`   | Branch, tag, or ref to fetch from. Defaults to the remote's default branch. For GitHub transport, use the `@ref` source syntax.                                                                                       |
-| `path`      | `string`   | Path to the skills directory within the repository. Defaults to `"skills"`. Set to `""`, `"."`, or `"./"` to target the entire repository root (see note below). For GitHub transport, use the `:path` source syntax. |
+| Property    | Type       | Description                                                                                                                                                                                |
+| ----------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `source`    | `string`   | Repository or Gist source. Gists accept `https://gist.github.com/<owner>/<id>` or `gist:<id>`. For git transport, use a full git URL.                                                      |
+| `skills`    | `string[]` | Optional list of skill names to fetch. For a Gist, this filters against the `name` in `SKILL.md`.                                                                                          |
+| `transport` | `string`   | `"github"` (default) uses the GitHub REST API. `"git"` uses git CLI and works with any git remote.                                                                                         |
+| `ref`       | `string`   | Branch, tag, or ref to fetch from. For a Gist, this is an optional revision SHA. For GitHub repositories, use the `@ref` source syntax.                                                    |
+| `path`      | `string`   | Path to the skills directory within a repository. Gist sources do not support this field. Set to `""`, `"."`, or `"./"` with git transport to target the repository root (see note below). |
 
 > **Repository-root paths (`path: "."`):** When `path` is `""`, `"."`, or `"./"` (with the `git` transport), rulesync disables sparse-checkout and fetches the **entire** repository tree, then groups each top-level directory as a skill. This is useful for single-skill repositories whose `SKILL.md` lives at the repo root (`<repo>/SKILL.md`) rather than under a `skills/` container. Because the whole tree is fetched, prefer a narrower `path` for large repositories; the fetch is still bounded by rulesync's file-count, total-size, and depth limits.
 
@@ -59,8 +68,8 @@ Each entry in `sources` accepts:
 When `rulesync install` runs and `sources` is configured:
 
 1. **Lockfile resolution** — Each source's ref is resolved to a commit SHA and stored in `rulesync.lock` (at the project root). On subsequent runs the locked SHA is reused for deterministic builds.
-2. **Remote skill listing** — The `skills/` directory (or the path specified in the source URL) is listed from the remote repository.
-3. **Filtering** — If `skills` is specified, only matching skill directories are fetched.
+2. **Remote skill listing** — Repository sources list their skills directory. Each Gist is treated as one skill and must contain `SKILL.md`; its frontmatter `name` sets the installed directory name.
+3. **Filtering** — If `skills` is specified, only matching skill names are fetched.
 4. **Precedence rules**:
    - **Local skills always win** — Skills in `.rulesync/skills/` (not in `.curated/`) take precedence; a remote skill with the same name is skipped.
    - **First-declared source wins** — If two sources provide a skill with the same name, the one declared first in the `sources` array is used.
@@ -77,6 +86,8 @@ When `rulesync install` runs and `sources` is configured:
 | `gh`       | `rulesync.jsonc` `sources`   | `rulesync-gh.lock.yaml`  | Per-agent / per-scope dirs (matching `gh skill install`)                     |
 
 When `--mode` is omitted, rulesync defaults to `rulesync` mode. If `apm.yml` is present and `sources` is also defined, you must pass `--mode apm` or `--mode rulesync` to disambiguate.
+
+Gist sources are supported in `rulesync` mode. The `apm` and `gh` compatibility modes retain their own source formats.
 
 ### `--mode gh` — gh-skill-install–compatible layout
 

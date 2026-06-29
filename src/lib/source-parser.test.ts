@@ -1,6 +1,37 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSource } from "./source-parser.js";
+import { isGistSource, parseGistSource, parseSource } from "./source-parser.js";
+
+describe("GitHub Gist source parsing", () => {
+  it("should detect Gist URLs and shorthand", () => {
+    expect(isGistSource("https://gist.github.com/owner/aa5a315d61ae9438b18d")).toBe(true);
+    expect(isGistSource("gist:aa5a315d61ae9438b18d")).toBe(true);
+    expect(isGistSource("https://github.com/octocat/repo")).toBe(false);
+  });
+
+  it("should parse a canonical Gist URL", () => {
+    expect(parseGistSource("https://gist.github.com/owner/aa5a315d61ae9438b18d")).toEqual({
+      owner: "owner",
+      gistId: "aa5a315d61ae9438b18d",
+    });
+  });
+
+  it("should parse ownerless URLs and shorthand", () => {
+    expect(parseGistSource("https://gist.github.com/aa5a315d61ae9438b18d.git")).toEqual({
+      gistId: "aa5a315d61ae9438b18d",
+    });
+    expect(parseGistSource("gist:aa5a315d61ae9438b18d")).toEqual({
+      gistId: "aa5a315d61ae9438b18d",
+    });
+  });
+
+  it("should reject non-Gist paths and invalid IDs", () => {
+    expect(() =>
+      parseGistSource("https://gist.github.com/owner/aa5a315d61ae9438b18d/revisions"),
+    ).toThrow(/Invalid Gist URL/);
+    expect(() => parseGistSource("gist:not-a-gist-id")).toThrow(/Invalid Gist ID/);
+  });
+});
 
 describe("parseSource", () => {
   describe("GitHub URL parsing", () => {
